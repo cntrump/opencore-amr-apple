@@ -2,11 +2,11 @@ name: Build and Release XCFramework
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master, main ]
     tags:
       - 'v*' # This will trigger the workflow on any tag starting with 'v'
   pull_request:
-    branches: [ main ]
+    branches: [ master, main ]
   workflow_dispatch:
     inputs:
       release_version:
@@ -91,61 +91,36 @@ jobs:
         echo "Contents of OUTPUT_DIR:"
         ls -R ${{ env.OUTPUT_DIR }}
 
-    - name: Create fat libraries using lipo
+    - name: Flatten per-target artifacts
       run: |
-        mkdir -p "${OUTPUT_DIR}/fat"
-        
-        MACOS_ARCHS="arm64 x86_64"
-        IPHONEOS_ARCHS="arm64"
-        IPHONESIMULATOR_ARCHS="x86_64 arm64"
-        
-        LIBRARIES="libopencore-amrnb libopencore-amrwb"
-        
-        for lib in $LIBRARIES; do
-          # For macOS
-          lipo -create $(for arch in $MACOS_ARCHS; do echo "${OUTPUT_DIR}/build-macosx-${arch}/macosx-${arch}-MacOSX/lib/${lib}.a"; done) \
-            -output "${OUTPUT_DIR}/fat/${lib}-macos.a"
-          
-          # For iOS device
-          cp "${OUTPUT_DIR}/build-iphoneos-arm64/iphoneos-arm64-iPhoneOS/lib/${lib}.a" "${OUTPUT_DIR}/fat/${lib}-iphoneos.a"
-          
-          # For iOS simulator
-          lipo -create $(for arch in $IPHONESIMULATOR_ARCHS; do echo "${OUTPUT_DIR}/build-iphonesimulator-${arch}/iphonesimulator-${arch}-iPhoneSimulator/lib/${lib}.a"; done) \
-            -output "${OUTPUT_DIR}/fat/${lib}-iphonesimulator.a"
+        # Each build job uploaded one <platform>-<arch>-<sdk>/ install tree;
+        # download-artifact placed each under build-<sdk>-<arch>/. Move them
+        # all to the OUTPUT_DIR root — the same layout build_ios.sh produces
+        # locally and .github/actions/create_xcframework.sh consumes.
+        cd "$OUTPUT_DIR"
+        for d in build-*; do
+          [ -d "$d" ] || continue
+          for sub in "$d"/*; do
+            [ -e "$sub" ] || continue
+            if [ -e "$(basename "$sub")" ]; then
+              echo "error: unexpected duplicate tree: $sub" >&2
+              exit 1
+            fi
+            mv "$sub" .
+          done
+          rm -rf "$d"
         done
-        
+        ls -la
+
     - name: Create XCFrameworks
       run: |
-        mkdir -p "${OUTPUT_DIR}/Headers/"
-        
-        LIBRARIES="opencore-amrnb opencore-amrwb"
-        PLATFORMS="macos iphoneos iphonesimulator"
-        
-        for lib in $LIBRARIES; do
-          rm -rf ${OUTPUT_DIR}/Headers/*
-          rm -rf ${OUTPUT_DIR}/${lib}.xcframework
-          
-          # Copy headers
-          case $lib in
-            opencore-amrnb)
-              cp -a amrnb/interf_dec.h amrnb/interf_enc.h ${OUTPUT_DIR}/Headers/
-              ;;
-            opencore-amrwb)
-              cp -a amrwb/dec_if.h amrwb/if_rom.h ${OUTPUT_DIR}/Headers/
-              ;;
-          esac
-          
-          # Prepare xcodebuild command
-          cmd="xcodebuild -create-xcframework"
-          for platform in $PLATFORMS; do
-            cmd+=" -library ${OUTPUT_DIR}/fat/lib${lib}-${platform}.a"
-            cmd+=" -headers ${OUTPUT_DIR}/Headers"
-          done
-          cmd+=" -output ${OUTPUT_DIR}/${lib}.xcframework"
-          
-          # Execute xcodebuild command
-          eval $cmd
-        done
+        # Framework-bundle XCFrameworks (static <module>.framework per slice,
+        # single Modules/module.modulemap, generated umbrella header) — the
+        # same shape build_ios.sh produces. Fat-archive merging, staging and
+        # structure checks all live in the script so local and CI packaging
+        # cannot drift.
+        ./.github/actions/create_xcframework.sh opencore-amrnb
+        ./.github/actions/create_xcframework.sh opencore-amrwb
 
     - name: Zip XCFrameworks
       run: |

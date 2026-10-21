@@ -8,6 +8,11 @@ OUTPUT_DIR="${GITHUB_WORKSPACE}/output"
 DEVELOPER=$(xcode-select --print-path)
 PLATFORMSROOT="${DEVELOPER}/Platforms"
 
+# Deployment floors — same defaults as build_ios.sh so CI and local artifacts
+# are equivalent.
+IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-12.0}"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.13}"
+
 config_library() {
     ROOTDIR="${OUTPUT_DIR}/${platform}-${arch}-${sdk}"
     mkdir -p "${ROOTDIR}"
@@ -16,13 +21,13 @@ config_library() {
     CFLAGS="-arch ${ARCH2:-${arch}} -pipe -isysroot ${SDKROOT} -O3 -DNDEBUG"
 
     if [[ ${platform} == "iphoneos" ]]; then
-        CFLAGS+=" -miphoneos-version-min=7.0 ${EXTRA_CFLAGS}"
+        CFLAGS+=" -miphoneos-version-min=${IPHONEOS_DEPLOYMENT_TARGET} ${EXTRA_CFLAGS}"
     fi
     if [[ ${platform} == "iphonesimulator" ]]; then
-        CFLAGS+=" -mios-simulator-version-min=7.0 ${EXTRA_CFLAGS}"
+        CFLAGS+=" -mios-simulator-version-min=${IPHONEOS_DEPLOYMENT_TARGET} ${EXTRA_CFLAGS}"
     fi
     if [[ ${platform} == "macosx" ]]; then
-        CFLAGS+=" -mmacosx-version-min=10.9 ${EXTRA_CFLAGS}"
+        CFLAGS+=" -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET} ${EXTRA_CFLAGS}"
     fi
 
     CXX="xcrun --sdk ${platform} clang++ "

@@ -35,6 +35,9 @@ profile
 DerivedData
 .idea/
 
+# Build artifacts
+/output/
+
 # http://www.gnu.org/software/automake
 
 Makefile.in
